@@ -14,13 +14,43 @@ def get_api_server(local=True):
         return THIS_SERVER
     return OTHER_SERVER
 
+# TODO: reduce calls to local api 
+
+def get_electrums_info_url(local=True):
+    api_server = get_api_server(local)
+    return f'{api_server}/api/info/electrums/'
+
+
+def get_explorers_info_url(local=True):
+    api_server = get_api_server(local)
+    return f'{api_server}/api/info/explorers/'
+
+
+def get_electrums_ssl_info_url(local=True):
+    api_server = get_api_server(local)
+    return f'{api_server}/api/info/electrums_ssl/'
+
+def get_electrums_wss_info_url(local=True):
+    api_server = get_api_server(local)
+    return f'{api_server}/api/info/electrums_wss/'
+
 
 def get_ntxid_list_url(season, server, coin, local=True):
     api_server = get_api_server(local)
     url = f"{api_server}/api/info/notarisation_txid_list/?season={season}&server={server}&coin={coin}"
     print(url)
     return url
+
+
+def get_rewards_txids_url(local=False):
+    api_server = get_api_server(local)
+    return f"{api_server}/api/wallet/rewards_txids"
+
     
+def get_rewards_txid_url(txid, local=False):
+    api_server = get_api_server(local)
+    return f"{api_server}/api/wallet/rewards_txids/?txid={txid}"
+
 
 def get_notarised_txid_url(txid, local=True):
     api_server = get_api_server(local)
@@ -216,20 +246,5 @@ def get_notary_nodes_repo_elected_nn_social_url(season):
 
 
 def get_scoring_epochs_repo_url(branch='master'):
-    return f"https://raw.githubusercontent.com/smk762/DragonhoundTools/master/notary/scoring_epochs.json"
-    #return f"https://raw.githubusercontent.com/KomodoPlatform/dPoW/{branch}/doc/scoring_epochs.json"
+    return f"https://raw.githubusercontent.com/KomodoPlatform/dPoW/{branch}/doc/scoring_epochs.json"
 
-
-def get_electrums_info_url(local=True):
-    api_server = get_api_server(local)
-    return f'{api_server}/api/info/electrums/'
-
-
-def get_explorers_info_url(local=True):
-    api_server = get_api_server(local)
-    return f'{api_server}/api/info/explorers/'
-
-
-def get_electrums_ssl_info_url(local=True):
-    api_server = get_api_server(local)
-    return f'{api_server}/api/info/electrums_ssl/'

@@ -1,67 +1,91 @@
-version: '3'
-  
+version: '3.7'
+
+# All Antara coins need these params
+x-zcash-params-volume:
+  &zcash-params
+  type: bind
+  source: /home/smk762/.zcash-params
+  target: /home/komodian/.zcash-params
+
 services:
+  kmd:
+    container_name: kmd
+    init: true
+    network_mode: "host"
+    stop_signal: SIGTERM
+    stop_grace_period: 45s
+    entrypoint: ["/home/komodian/launch_KMD.sh"]
+    env_file:
+      - .env
+    build:
+      context: .
+      dockerfile: Dockerfile.komodod
+      args:
+        - USER_ID=$USER_ID
+        - GROUP_ID=$GROUP_ID
+    ports:
+      - "127.0.0.1:7770:7770"
+      - "127.0.0.1:7771:7771"
+    volumes:
+      - ./code:/home/komodian/code
+      - /home/smk762/.komodo:/home/komodian/.komodo
+      - /home/smk762/.zcash-params:/home/komodian/.zcash-params
+    shm_size: '2gb'
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "10"
+    healthcheck:
+      test: ["CMD", "bash", "/usr/local/bin/healthcheck.sh", "komodo-cli"]
+      interval: 15m
+      timeout: 60s
+      retries: 3
+      start_period: 15m
 
   mm2:
-    restart: always
-    build: 
-      context: mm2
-      dockerfile: Dockerfile
-
-    volumes:
-      - ./mm2:/mm2
-
+    container_name: mm2
+    env_file:
+      - .env
     environment:
       - userpass=${userpass}
-
-    ports:
-      - "7783:7783"
-
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "20m"
-        max-file: "10"
-
-  kmd:
-    restart: always
-    network_mode: "host"
-    image: komodoofficial/komodo:cd_release_fb4b355_master
-
+    build:
+      context: ./mm2
+      dockerfile: Dockerfile
+      args:
+        - USER_ID=$USER_ID
+        - GROUP_ID=$GROUP_ID
     volumes:
-      - ./code:/code
-      - /home/smk762/.komodo:/root/.komodo
-      - /home/smk762/.zcash-params:/root/.zcash-params
-
+      - ./mm2:/home/komodian/mm2
     ports:
-      - "7770:7770"
-      - "7771:7771"
-
+      - 127.0.0.1:7783:7783
+      - 127.0.0.1:42845:42845
+      - 127.0.0.1:42855:42855
     logging:
       driver: "json-file"
       options:
         max-size: "20m"
         max-file: "10"
+    restart: always
+    command: ["/init.sh"]
 
   db:
+    container_name: db
     image: postgres
     restart: always
-
+    shm_size: '2gb'
     volumes:
       - ./postgres-data:/var/lib/postgresql/data
-
     environment:
       - POSTGRES_DB=postgres
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
-
     depends_on:
       - kmd
       - mm2
-
     ports:
       - "7654:5432"
-
     logging:
       driver: "json-file"
       options:
@@ -69,43 +93,52 @@ services:
         max-file: "10"
     
   web:
+    container_name: web
     build: 
       context: .
+      shm_size: '2gb'
       args:
         requirements: requirements/dev.txt
     environment:
       - DJANGO_SETTINGS_MODULE=kmd_ntx_stats.settings.dev
-
     command: bash -c "python manage.py runserver 0.0.0.0:8762 && /code/scripts/collect_seednode_stats.py start"
     restart: always
-
     volumes:
       - ./code:/code
       - /var/www/stats.kmd.io/html/static:/var/www/stats.kmd.io/html/static
-
     ports:
       - "8762:8762"
-
     depends_on:
       - mm2
       - db
       - kmd
-
+      - memcached
     logging:
       driver: "json-file"
       options:
         max-size: "20m"
         max-file: "10"
 
+  memcached:
+    container_name: memcached
+    image: memcached:latest
+    ports:
+      - "127.0.0.1:11211:11211"
+    restart: always
+    depends_on:
+      - db
+      - mm2
+      - kmd
+    command: ["memcached", "-I", "40m", "-m", "100m"]
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 65535
+        hard: 65535
+
 networks:
   default:
     ipam:
       driver: default
       config:
-        - subnet: 172.17.0.1/16
-        
-# to run migrations, use "docker-compose run web python3 manage.py migrate"
-# to run migrations, use "docker-compose run web python3 makemigrations"
-
-# docker-compose run web python3 manage.py createsuperuser --email admin@notary.earth --username admin
-# Conane Barbarian 
+        - subnet: 172.18.1.1/16

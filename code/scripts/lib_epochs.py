@@ -7,6 +7,7 @@ from models import ntx_tenure_row, scoring_epoch_row
 from decorators import print_runtime
 from lib_helper import get_season_coins
 
+
 @print_runtime
 def preseason_populate_ntx_tenure(season):
     now = int(time.time())
@@ -192,25 +193,24 @@ def get_dpow_scoring_window(season, server, coin):
 
 # Update notarised table epochs and score value
 @print_runtime
-def update_notarised_epoch_scoring():
-    for season in SEASONS_INFO:
-        for server in SEASONS_INFO[season]["servers"]:
-            for epoch in SEASONS_INFO[season]["servers"][server]["epochs"]:
+def update_notarised_epoch_scoring(season):
+    for server in SEASONS_INFO[season]["servers"]:
+        for epoch in SEASONS_INFO[season]["servers"][server]["epochs"]:
 
-                epoch_start = SEASONS_INFO[season]["servers"][server]["epochs"][epoch]['start_time']
-                epoch_end = SEASONS_INFO[season]["servers"][server]["epochs"][epoch]['end_time']
-                epoch_coins = SEASONS_INFO[season]["servers"][server]["epochs"][epoch]['coins']
-                if season.find("Testnet") != -1:
-                    score_per_ntx = 1
-                else:
-                    score_per_ntx = lib_validate.calc_epoch_score(server, len(epoch_coins))
-                logger.info(f">>> Updating notarised table epochs and score value for {season} {server} {epoch} {score_per_ntx}...")
+            epoch_start = SEASONS_INFO[season]["servers"][server]["epochs"][epoch]['start_time']
+            epoch_end = SEASONS_INFO[season]["servers"][server]["epochs"][epoch]['end_time']
+            epoch_coins = SEASONS_INFO[season]["servers"][server]["epochs"][epoch]['coins']
+            if season.find("Testnet") != -1:
+                score_per_ntx = 1
+            else:
+                score_per_ntx = lib_validate.calc_epoch_score(server, len(epoch_coins))
+            logger.info(f">>> Updating notarised table epochs and score value for {season} {server} {epoch} {score_per_ntx}...")
 
-                for coin in epoch_coins:
-                    update_notarised_epoch_scores(
-                        coin, season, server, epoch, epoch_start,
-                        epoch_end, score_per_ntx, True
-                    )
+            for coin in epoch_coins:
+                update_notarised_epoch_scores(
+                    coin, season, server, epoch, epoch_start,
+                    epoch_end, score_per_ntx, True
+                )
 
 @print_runtime
 def update_ntx_tenure(season, server, coin):

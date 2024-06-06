@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import os
+import sys
+from os.path import expanduser, dirname, realpath
 import time
 import requests
 import logging
@@ -38,6 +40,7 @@ DEVISOR = 10512000
 EXPLORERS = requests.get(lib_urls.get_explorers_info_url()).json()['results']
 ELECTRUMS = requests.get(lib_urls.get_electrums_info_url()).json()['results']
 ELECTRUMS_SSL = requests.get(lib_urls.get_electrums_ssl_info_url()).json()['results']
+ELECTRUMS_WSS = requests.get(lib_urls.get_electrums_wss_info_url()).json()['results']
 
 
 # Coins
@@ -65,9 +68,22 @@ NON_NOTARY_ADDRESSES = {
 
 
 # Some coins are named differently between dpow and coins repo...
-TRANSLATE_COINS = {'COQUI': 'COQUICASH', 'OURC': 'OUR',
-                   'WLC': 'WLC21', 'GleecBTC': 'GLEEC-OLD',
-                   'ARRR': "PIRATE", 'TKL':'TOKEL'}
+TRANSLATE_COINS = {
+    'COQUI': 'COQUICASH',
+    'OURC': 'OUR',
+    'WLC': 'WLC21',
+    'GleecBTC': 'GLEEC-OLD',
+    'ARRR': "PIRATE",
+    'TKL':'TOKEL'
+}
+REVERSE_TRANSLATE_COINS = {
+    'COQUICASH': 'COQUI',
+    'OUR': 'OURC',
+    'WLC21': 'WLC',
+    'GLEEC-OLD': 'GleecBTC',
+    'PIRATE': "ARRR",
+    'TOKEL':'TKL'
+}
 
 KNOWN_NOTARIES = []
 KNOWN_ADDRESSES = {}
@@ -83,5 +99,10 @@ KNOWN_NOTARIES = list(set(KNOWN_NOTARIES))
 KNOWN_NOTARIES.sort()
 
 CLEAN_UP = False
+
+HOME = expanduser('~')
+SCRIPT_PATH = dirname(realpath(sys.argv[0]))
+COINS_CONFIG_URL = "https://raw.githubusercontent.com/KomodoPlatform/coins/master/utils/coins_config.json"
+COINS_CONFIG_PATH = f"{SCRIPT_PATH}/coins_config.json"
 
 print(f"{int(time.time()) - NOW} sec to complete const")

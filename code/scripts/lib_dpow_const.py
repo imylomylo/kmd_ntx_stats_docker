@@ -10,80 +10,69 @@ from notary_pubkeys import NOTARY_PUBKEYS
 from notary_candidates import CANDIDATE_ADDRESSES
 
 
-def get_scoring_epoch_data():
-    
-    url = urls.get_scoring_epochs_repo_url()
-    data = requests.get(url).json()
-    for _season in data:
-        _servers = list(data[_season]["Servers"].keys())[:]
+def get_scoring_epochs_repo_data(branch='master'):
+    url = urls.get_scoring_epochs_repo_url(branch)
+    repo_data = requests.get(url).json()
+    for _season in repo_data:
+        _servers = list(repo_data[_season]["Servers"].keys())[:]
         for _server in _servers:
-
+            # Rename the dict keys. 
             if _server == "dPoW-Mainnet":
-                data[_season]["Servers"].update({
-                    "Main": data[_season]["Servers"]["dPoW-Mainnet"]
+                repo_data[_season]["Servers"].update({
+                    "Main": repo_data[_season]["Servers"]["dPoW-Mainnet"]
                 })
-                del data[_season]["Servers"]["dPoW-Mainnet"]
+                del repo_data[_season]["Servers"]["dPoW-Mainnet"]
 
             elif _server == "dPoW-3P":
-                data[_season]["Servers"].update({
-                    "Third_Party": data[_season]["Servers"]["dPoW-3P"]
+                repo_data[_season]["Servers"].update({
+                    "Third_Party": repo_data[_season]["Servers"]["dPoW-3P"]
                 })
-                del data[_season]["Servers"]["dPoW-3P"]
-
-        if data[_season]["season_end"] > SEASONS_INFO[_season]["end_time"]:
-            data[_season]["season_end"] = SEASONS_INFO[_season]["end_time"]
-    return data
+                del repo_data[_season]["Servers"]["dPoW-3P"]
+    return repo_data
 
 
 def get_dpow_active_info(seasons):
     '''Get current dpow coins from repo'''
     data = requests.get(urls.get_dpow_active_coins_url()).json()["results"]
-    for _season in seasons:
-        if _season.find("Testnet") == -1:
-            start_time, end_time = get_season_start_end(_season)
+    for season in seasons:
+        if season.find("Testnet") == -1:
+            start_time, end_time = get_season_start_end(season)
 
             if NOW >= start_time and NOW <= end_time:
-                current_season = _season
-                current_dpow_coins = {_season: {}}
+                current_season = season
+                current_dpow_coins = {season: {}}
 
                 for _coin in data:
-                    if data[_coin]["dpow"]["server"] not in current_dpow_coins[_season]:
-                        current_dpow_coins[_season].update({
+                    if data[_coin]["dpow"]["server"] not in current_dpow_coins[season]:
+                        current_dpow_coins[season].update({
                             data[_coin]["dpow"]["server"]: []
                         })
 
-                    current_dpow_coins[_season][data[_coin]["dpow"]["server"]].append(_coin)
+                    current_dpow_coins[season][data[_coin]["dpow"]["server"]].append(_coin)
 
     return current_season, data, current_dpow_coins
 
 
 def populate_epochs():
-    '''Get epoch data from local'''
     epoch_dict = {}
-    url = urls.get_season_scoring_epochs_url()
-    epochs_data = requests.get(url).json()["results"]
-    for item in epochs_data:
-        if item["season"] not in epoch_dict:
-            epoch_dict.update({item["season"]: {}})
-
-        if item["server"] not in epoch_dict[item["season"]]:
-            epoch_dict[item["season"]].update({item["server"]: {}})
-
-        epoch_dict[item["season"]][item["server"]].update({
-            item["epoch"]: {
-                "coins": item["epoch_coins"],
-                "epoch_start": item["epoch_start"],
-                "epoch_end": item["epoch_end"],
-                "start_event": item["start_event"],
-                "end_event": item["end_event"],
-                "num_epoch_coins": len(item["epoch_coins"]),
-                "score_per_ntx": item["score_per_ntx"]
-            }
-        })
+    for season in SEASONS_INFO:
+        epoch_dict.update({season: get_season_epochs(season)})
     return epoch_dict
 
 
-def calc_epoch_score(server, num_coins):
+def get_season_start_end(season):
+    start_time = SEASONS_INFO[season]["start_time"]
+    end_time = SEASONS_INFO[season]["end_time"]
+    if 'post_season_end_time' in SEASONS_INFO[season]:
+        end_time = SEASONS_INFO[season]["post_season_end_time"]
+    return start_time, end_time
+
+
+
+## 2023 Updates
+
+
+def get_epoch_score(server, num_coins):
     if num_coins == 0:
         return 0
     if server == "Main":
@@ -98,15 +87,181 @@ def calc_epoch_score(server, num_coins):
         return 0
 
 
-def get_season_start_end(season):
-    start_time = SEASONS_INFO[season]["start_time"]
-    end_time = SEASONS_INFO[season]["end_time"]
-    if 'post_season_end_time' in SEASONS_INFO[season]:
-        end_time = SEASONS_INFO[season]["post_season_end_time"]
-    return start_time, end_time
+def get_coin_time_ranges(season):
+    '''
+    Gets scoring epochs data from dpow repo, then determines the epochs
+    for each server and the coins valid during that epoch.
+    '''
+    coin_ranges = {}
+    if season in SEASON_START_COINS:
+        # Initialise with full season timespan
+        for server in SEASON_START_COINS[season]:
+            coin_ranges.update({server: {}})
+            for coin in SEASON_START_COINS[season][server]:
+                coin_ranges[server].update({
+                    coin: {
+                        "start": SEASONS_INFO[season]["start_time"],
+                        "end": SEASONS_INFO[season]["end_time"]
+                    }
+                })
+
+        # Refine timespan for partial season coins
+        repo_data = get_scoring_epochs_repo_data()
+        if season in repo_data:
+            repo_data = repo_data[season]
+            for server in SEASON_START_COINS[season]:
+                if server in repo_data["Servers"]:
+                    for coin in repo_data["Servers"][server]:
+                        if coin not in coin_ranges[server]:
+                            coin_ranges[server].update({
+                                coin: {
+                                    "start": SEASONS_INFO[season]["start_time"],
+                                    "end": SEASONS_INFO[season]["end_time"]
+                                }
+                            })
+                        if "start_time" in repo_data["Servers"][server][coin]:
+                            coin_ranges[server][coin].update({"start": repo_data["Servers"][server][coin]["start_time"]})
+                        if "end_time" in repo_data["Servers"][server][coin]:
+                            coin_ranges[server][coin].update({"end": repo_data["Servers"][server][coin]["end_time"]})
+
+    return coin_ranges                        
 
 
+def get_epoch_time_breaks(repo_data, season, server):
+    time_breaks = [SEASONS_INFO[season]["start_time"], SEASONS_INFO[season]["end_time"]]
+    for coin in repo_data["Servers"][server]:
+        if "start_time" in repo_data["Servers"][server][coin]:
+            time_breaks.append(repo_data["Servers"][server][coin]["start_time"])
+        if "end_time" in repo_data["Servers"][server][coin]:
+            time_breaks.append(repo_data["Servers"][server][coin]["end_time"])
+    time_breaks = list(set(time_breaks))
+    time_breaks.sort()
+    return time_breaks
+
+
+def get_season_epochs(season):
+    epoch = 0
+    epoch_dict = {}
+    repo_data = get_scoring_epochs_repo_data()
+    if season in repo_data:
+        repo_data = repo_data[season]
+        coin_ranges = get_coin_time_ranges(season)
+
+        for server in repo_data["Servers"]:
+            epoch_dict.update({server: {}})
+            time_breaks = get_epoch_time_breaks(repo_data, season, server)
+
+            for i in range(len(time_breaks)-1):
+                epoch = f"Epoch_{i}"
+                epoch_dict[server].update({
+                    epoch: {
+                        'start_time': time_breaks[i],
+                        'end_time': time_breaks[i+1]-1,
+                        'start_event': get_epoch_events(repo_data, time_breaks[i]),
+                        'end_event': get_epoch_events(repo_data, time_breaks[i+1])
+                    }
+                })
+                epoch_coins = get_epoch_coins(season, server, epoch_dict[server][epoch])
+                epoch_dict[server][epoch].update({
+                    "coins": epoch_coins,
+                    'num_epoch_coins': len(epoch_coins),
+                    'score_per_ntx': get_epoch_score(server, len(epoch_coins))
+                })
+        for server in ["KMD", "LTC"]:
+            epoch_dict.update({
+                server: {
+                    server: {
+                        'start_time': SEASONS_INFO[season]["start_time"],
+                        'end_time': SEASONS_INFO[season]["end_time"],
+                        'start_event': "season start",
+                        'end_event': "season end",
+                        "coins": [server],
+                        'num_epoch_coins': 1,
+                        'score_per_ntx': get_epoch_score(server, 1)
+                    }
+                }
+            })
+    return epoch_dict
+
+
+def get_epoch_events(repo_data, timestamp):
+    events = []
+    for server in repo_data["Servers"]:
+        for coin in repo_data["Servers"][server]:
+            if "start_time" in repo_data["Servers"][server][coin]:
+                if timestamp == repo_data["Servers"][server][coin]["start_time"]:
+                    events.append(f"{coin} start")
+            if "end_time" in repo_data["Servers"][server][coin]:
+                if timestamp == repo_data["Servers"][server][coin]["end_time"]:
+                    events.append(f"{coin} end")
+            if timestamp == repo_data["season_start"]:
+                events.append(f"season start")
+            if timestamp == repo_data["season_end"]:
+                events.append(f"season end")
+
+    events = list(set(events))
+    return ', '.join(events)
+
+
+def get_epoch_coins(season, server, epoch):
+    epoch_coins = []
+    coin_ranges = get_coin_time_ranges(season)
+    if server in coin_ranges:
+        coin_ranges = coin_ranges[server]
+        for coin in coin_ranges:
+            coin_start = coin_ranges[coin]["start"]
+            coin_end = coin_ranges[coin]["end"]
+            start_time = epoch["start_time"]
+            end_time = epoch["end_time"]
+            if coin_start <= start_time:
+                if coin_end >= end_time:
+                    epoch_coins.append(coin)
+    return epoch_coins
+
+
+def get_season_notaries(season):
+    notaries = []
+    if season in SEASONS_INFO and season in NOTARY_PUBKEYS:
+        notaries = list(NOTARY_PUBKEYS[season]["Main"].keys())
+        notaries.sort()
+    return notaries
+
+
+def get_season_coins(season):
+    coins = []
+    if season in SEASON_START_COINS:
+        for server in SEASON_START_COINS[season]:
+            coins += SEASON_START_COINS[season][server]
+    if season in SCORING_EPOCHS_REPO_DATA:
+        for server in SCORING_EPOCHS_REPO_DATA[season]["Servers"]:
+            for coin in SCORING_EPOCHS_REPO_DATA[season]["Servers"][server]:
+                if coin not in coins:
+                    coins.append(coin)
+    coins = list(set(coins))
+    coins.sort()
+    return coins
+
+
+def get_season_server_coins(season, server):
+    coins = []
+    if season in SEASON_START_COINS:
+        if server in SEASON_START_COINS[season]:
+            coins += SEASON_START_COINS[season][server]
+    if season in SCORING_EPOCHS_REPO_DATA:
+        if server in SCORING_EPOCHS_REPO_DATA[season]["Servers"]:
+            for coin in SCORING_EPOCHS_REPO_DATA[season]["Servers"][server]:
+                if coin not in coins:
+                    coins.append(coin)
+    coins = list(set(coins))
+    coins.sort()
+    return coins
+
+
+# Rescan full season
 NOW = time.time()
+RESCAN_SEASON = False
+RESCAN_CHUNK_SIZE = 10000
+
 
 # Notarisation Addresses
 NTX_ADDR = 'RXL3YXG2ceaB6C5hfJcN4fvmLH2C34knhA'
@@ -120,11 +275,19 @@ S4_INIT_BTC_FUNDING_TX = "13fee57ec60ef4ca42dbed5eb77d576bf7545e7042b334b27afdc3
 
 # OP_RETURN data sometimes has extra info. Not used yet, but here for future reference
 noMoM = ['CHIPS', 'GAME', 'HUSH3', 'EMC2', 'GIN', 'GLEEC-OLD', 'AYA', 'MCL', 'VRSC']
+VALID_SERVERS = ["Main", "Third_Party", "KMD", "BTC", "LTC"]
+SCORING_EPOCHS_REPO_DATA = get_scoring_epochs_repo_data()
+
+
+# Things that can be ignored
+RETIRED_DPOW_COINS = ["HUSH3", "GLEEC-OLD", "AXO", "BTCH", "COQUICASH", "OOT"]
+EXCLUDE_DECODE_OPRET_COINS = ['D']
+EXCLUDED_SERVERS = ["Unofficial"]
+EXCLUDED_SEASONS = ["Season_1", "Season_2", "Season_3", "Unofficial", "Season_4", "Season_5", "Season_5_Testnet", "VOTE2022_Testnet"]
 
 
 OTHER_LAUNCH_PARAMS = {
     "BTC": "~/bitcoin/src/bitcoind",
-    "SFUSD": "~/sfusd-core/src/smartusdd",
     "LTC": "~/litecoin/src/litecoind",
     "KMD": "~/komodo/src/komodod", 
     "AYA": "~/AYAv2/src/aryacoind",
@@ -134,29 +297,24 @@ OTHER_LAUNCH_PARAMS = {
     "TOKEL": "~/tokelkomodo/src/komodod -ac_name=TOKEL -ac_supply=100000000 -ac_eras=2 -ac_cbmaturity=1 -ac_reward=100000000,4250000000 -ac_end=80640,0 -ac_decay=0,77700000 -ac_halving=0,525600 -ac_cc=555 -ac_ccenable=236,245,246,247 -ac_adaptivepow=6 -addnode=135.125.204.169 -addnode=192.99.71.125 -addnode=144.76.140.197 -addnode=135.181.92.123 ",
     "VRSC": "~/VerusCoin/src/verusd",
     "GLEEC": "~/komodo/src/komodod -ac_name=GLEEC -ac_supply=210000000 -ac_public=1 -ac_staked=100 -addnode=95.217.161.126",
-    "VOTE2021": "~/komodo/src/komodod  -ac_name=VOTE2021 -ac_public=1 -ac_supply=129848152 -addnode=77.74.197.115",
-    "GLEEC-OLD": "~/GleecBTC-FullNode-Win-Mac-Linux/src/gleecbtcd",
+    "KIP0001": "~/komodo/src/komodod -ac_public=1 -ac_name=KIP0001 -ac_supply=139419284 -ac_staked=10 -addnode=178.159.2.6",
     "MCL": "~/marmara/src/komodod -ac_name=MCL -ac_supply=2000000 -ac_cc=2 -addnode=5.189.149.242 -addnode=161.97.146.150 -addnode=149.202.158.145 -addressindex=1 -spentindex=1 -ac_marmara=1 -ac_staked=75 -ac_reward=3000000000 -daemon"
 }
 
-
 OTHER_CONF_FILE = {
     "BTC": "~/.bitcoin/bitcoin.conf",
-    "SFUSD": "~/.smartusd/smartusd.conf",
     "LTC": "~/.litecoin/litecoin.conf",
     "KMD": "~/.komodo/komodo.conf",
     "MCL": "~/.komodo/MCL/MCL.conf", 
     "MIL": "~/.mil/mil.conf", 
     "TOKEL": "~/.komodo/TOKEL/TOKEL.conf", 
-    "VOTE2021": "~/.komodo/VOTE2021/VOTE2021.conf",
+    "KIP0001": "~/.komodo/KIP0001/KIP0001.conf",
     "AYA": "~/.aryacoin/aryacoin.conf",
     "CHIPS": "~/.chips/chips.conf",
     "EMC2": "~/.einsteinium/einsteinium.conf",
     "VRSC": "~/.komodo/VRSC/VRSC.conf",   
-    "GLEEC": "~/.komodo/GLEEC/GLEEC.conf",
-    "GLEEC-OLD": "~/.gleecbtc/gleecbtc.conf",   
+    "GLEEC": "~/.komodo/GLEEC/GLEEC.conf" 
 }
-
 
 OTHER_PREFIXES = {
     "MIL": {
@@ -166,28 +324,20 @@ OTHER_PREFIXES = {
     }
 }
 
-
 OTHER_CLI = {
     "BTC": "~/bitcoin/src/bitcoin-cli",
-    "SFUSD": "~/sfusd-core/src/smartusd-cli",
     "LTC": "~/litecoin/src/litecoin-cli",
     "KMD": "~/komodo/src/komodo-cli",
     "MIL": "~/mil-1/src/mil-cli",
     "MCL": "~/komodo/src/komodo-cli -ac_name=MCL",
     "TOKEL": "~/komodo/src/komodo-cli -ac_name=TOKEL", 
     "GLEEC": "~/komodo/src/komodo-cli -ac_name=GLEEC",
-    "VOTE2021": "~/komodo/src/komodo-cli -ac_name=VOTE2021",
+    "KIP0001": "~/komodo/src/komodo-cli -ac_name=KIP0001",
     "AYA": "~/AYAv2/src/aryacoin-cli",
     "CHIPS": "~/chips/src/chips-cli",
     "EMC2": "~/einsteinium/src/einsteinium-cli",
-    "VRSC": "~/VerusCoin/src/verus",   
-    "GLEEC-OLD": "~/GleecBTC-FullNode-Win-Mac-Linux/src/gleecbtc-cli",   
+    "VRSC": "~/VerusCoin/src/verus"  
 }
-
-# Rescan full season
-RESCAN_SEASON = False
-RESCAN_CHUNK_SIZE = 100000
-
 
 DPOW_EXCLUDED_COINS = {
     "Season_1": [],
@@ -244,28 +394,29 @@ DPOW_EXCLUDED_COINS = {
         "ZILLA",
         "GLEEC-OLD"
     ],
+    "Season_7": [
+        "BLUR",
+        "LABS",
+        "BTC",
+        "MESH",
+        "ZILLA",
+        "GLEEC-OLD"
+    ],
     "VOTE2022_Testnet": [
         "BLUR",
         "LABS",
     ]
 }
 
-
-VALID_SERVERS = ["Main", "Third_Party", "KMD", "BTC", "LTC"]
-
-
-NEXT_SEASON_COINS = {
+SEASON_START_COINS = {
     "Season_6": {
         "LTC": ["LTC"],
         "KMD": ["KMD"],
         "Main": [
-            "AXO",
             "BET",
             "BOTS",
-            "BTCH",
             "CLC",
             "CCL",
-            "COQUICASH",
             "CRYPTO",
             "DEX",
             "GLEEC",
@@ -274,13 +425,37 @@ NEXT_SEASON_COINS = {
             "JUMBLR",
             "KOIN",
             "MGW",
-            "MORTY",
+            "MARTY",
             "MSHARK",
             "NINJA",
             "PANGEA",
             "PIRATE",
             "REVS",
-            "RICK",
+            "DOC",
+            "SUPERNET",
+            "THC"
+        ],
+        "Third_Party": [
+            "AYA",
+            "EMC2",
+            "MCL",
+            "SFUSD",
+            "TOKEL"
+        ]
+    },
+    "Season_7": {
+        "LTC": ["LTC"],
+        "KMD": ["KMD"],
+        "Main": [
+            "CLC",
+            "CCL",
+            "DOC",
+            "GLEEC",
+            "ILN",
+            "KOIN",
+            "MARTY",
+            "NINJA",
+            "PIRATE",
             "SUPERNET",
             "THC"
         ],
@@ -288,24 +463,19 @@ NEXT_SEASON_COINS = {
             "AYA",
             "CHIPS",
             "EMC2",
-            "MIL",
             "MCL",
-            "SFUSD",
-            "VRSC",
-            "TOKEL"
+            "MIL",
+            "TOKEL",
+            "VRSC"
+        ]
+    },
+    "VOTE2023_Testnet": {
+        "Main": [
+            "DOC",
+            "MARTY"
         ]
     }
 }
-
-EXCLUDE_DECODE_OPRET_COINS = ['D']
-
-
-EXCLUDED_SERVERS = ["Unofficial"]
-EXCLUDED_SEASONS = ["Season_1", "Season_2", "Season_3", "Unofficial", "Season_4", "Season_5", "Season_5_Testnet", "VOTE2022_Testnet"]
-
-
-RETIRED_DPOW_COINS = ["HUSH3", "GLEEC-OLD", "AXO", "BTCH", "COQUICASH", "OOT"]
-
 
 SEASONS_INFO = {
     "Season_1": {
@@ -313,8 +483,6 @@ SEASONS_INFO = {
         "end_block": 813999,
         "start_time": 1473793441,
         "end_time": 1530921600,
-        "notaries": [],
-        "coins": [],
         "servers": {}
     },
     "Season_2": {
@@ -322,8 +490,6 @@ SEASONS_INFO = {
         "end_block": 1443999,
         "start_time": 1530921600,
         "end_time": 1563148799,
-        "notaries": [],
-        "coins": [],
         "servers": {}
     },
     "Season_3": {
@@ -331,8 +497,6 @@ SEASONS_INFO = {
         "end_block": 1921999,
         "start_time": 1563148800,
         "end_time": 1592146799,
-        "notaries": [],
-        "coins": [],
         "servers": {}
     },
     "Season_4": {
@@ -340,8 +504,6 @@ SEASONS_INFO = {
         "end_block": 2436999,
         "start_time": 1592146800,
         "end_time": 1617364800,
-        "notaries": [],
-        "coins": [],
         "servers": {}
     },
     "Season_5": {
@@ -351,17 +513,22 @@ SEASONS_INFO = {
         "start_time": 1623682800,
         "end_time": 1651622400,
         "post_season_end_time": 1656077852,
-        "notaries": [],
-        "coins": [],
         "servers": {}
     },
     "Season_6": {
         "start_block": 2963330,
-        "end_block": 4437000,
+        "end_block": 3368762,
         "start_time": 1656077853,
-        "end_time": 2147483647,
-        "notaries": [],
-        "coins": [],
+        "end_time": 1680911999,
+        "post_season_end_time": 1688169599,
+        "servers": {}
+    },
+    "Season_7": {
+        "start_block": 3484958,
+        "end_block": 4484958,
+        "start_time": 1688132253,
+        "end_time": 1717199999,
+        "post_season_end_time": 1725148799,
         "servers": {}
     },
     "VOTE2022_Testnet": {
@@ -369,14 +536,13 @@ SEASONS_INFO = {
         "end_block": 2923160,
         "start_time": 1651622400,
         "end_time": 1653436800,
-        "notaries": [],
-        "coins": ["RICK", "MORTY"],
+        "coins": ["DOC", "MARTY"],
         "servers": {
             "Main": {
-                "coins": ["RICK", "MORTY"],
+                "coins": ["DOC", "MARTY"],
                 "addresses": {
-                    "RICK": {},
-                    "MORTY": {}
+                    "DOC": {},
+                    "MARTY": {}
                 },
                 "epochs": {
                     "Epoch_0": {
@@ -386,206 +552,70 @@ SEASONS_INFO = {
                         "end_block": 2923160,
                         "start_time": 1651622400,
                         "end_time": 1653436800,
-                        "coins": ["RICK", "MORTY"]
+                        "coins": ["DOC", "MARTY"]
+                    }
+                }
+            }
+        }    
+    },
+    "VOTE2023_Testnet": {
+        "start_block": 2903777,
+        "end_block": 2923160,
+        "start_time": 1651622400,
+        "end_time": 1653436800,
+        "coins": ["DOC", "MARTY"],
+        "servers": {
+            "Main": {
+                "coins": ["DOC", "MARTY"],
+                "addresses": {
+                    "DOC": {},
+                    "MARTY": {}
+                },
+                "epochs": {
+                    "Epoch_0": {
+                        "start_event": "testnet start",
+                        "end_event": "testnet end",
+                        "start_block": 2903777,
+                        "end_block": 2923160,
+                        "start_time": 1651622400,
+                        "end_time": 1653436800,
+                        "coins": ["DOC", "MARTY"],
+                        'score_per_ntx': 1
                     }
                 }
             }
         }    
     }
 }
+
+# Exclude future seasons until about to happen.
 for _season in SEASONS_INFO:
     if SEASONS_INFO[_season]["start_time"] > NOW - 96 * 60 * 60:
         EXCLUDED_SEASONS.append(_season)
 
-'''
-for _server in NEXT_SEASON_COINS["Season_6"]:
-    SEASONS_INFO["Season_6"]["coins"] += NEXT_SEASON_COINS["Season_6"][_server]
-    SEASONS_INFO["Season_6"]["servers"].update({
-        _server: {
-            "epochs": {
-                "Epoch_0": {
-                    "start_event": "Season start",
-                    "end_event": "Season end",
-                    "start_block": 2963330,
-                    "end_block": 4437000,
-                    "start_time": 1656077853,
-                    "end_time": 2147483647,
-                    "coins": NEXT_SEASON_COINS["Season_6"][_server]
-                }
-            },
-            "coins": NEXT_SEASON_COINS["Season_6"][_server],
-            "addresses": {}
-        }
-    })
-
-    for coin in NEXT_SEASON_COINS["Season_6"][_server]:
-        SEASONS_INFO["Season_6"]["servers"][_server]["addresses"].update({
-            coin: {}
-        })
-'''
-
-
-#print(f"SCORING_EPOCHS_REPO_DATA: {SCORING_EPOCHS_REPO_DATA[_season]}")
-
-# Get notaries for each season
-for _season in SEASONS_INFO:
-    if _season in NOTARY_PUBKEYS:
-        SEASONS_INFO[_season]["notaries"] = list(NOTARY_PUBKEYS[_season]["Main"].keys())
-        SEASONS_INFO[_season]["notaries"].sort()
-print("******************* Collected notaries data **************************")
 
 EPOCHS = populate_epochs()
-print("******************* Collected epochs data ****************************")
-#print(f"EPOCHS: {EPOCHS}")
 
-SCORING_EPOCHS_REPO_DATA = get_scoring_epoch_data()
-print("******************* Collected scoring epochs data ********************")
+# Add season coins & notaries
+for _season in SEASONS_INFO:
+    SEASONS_INFO[_season].update({"notaries": get_season_notaries(_season)})
+
+for _season in SEASONS_INFO:
+    SEASONS_INFO[_season].update({"coins": get_season_coins(_season)})
+    _ranges = get_coin_time_ranges(_season)
+    for _server in _ranges:
+        if _server in EPOCHS[_season]:
+            SEASONS_INFO[_season]["servers"].update({
+                _server: {
+                    "addresses": {},
+                    "coins": get_season_server_coins(_season, _server),
+                    "epochs": EPOCHS[_season][_server],
+                    "teunre": _ranges[_server]
+                }
+            })
+
 
 CURRENT_SEASON, DPOW_COINS_ACTIVE, CURRENT_DPOW_COINS = get_dpow_active_info(SEASONS_INFO.keys())
-print("******************* Collected dpow repo coins data *******************")
-#print(f"DPOW_COINS_ACTIVE: {DPOW_COINS_ACTIVE}")
-
-#print(f"EPOCHS: {EPOCHS}")
-
-
-for _season in SEASONS_INFO:
-    # For new seasons, will prepopulate from dPoW repo
-    if NOW - SEASONS_INFO[_season]["start_time"] < 48 * 60 * 60:
-        print(f"Using DPOW repo to populate {_season} early")
-
-        _servers = ["Main", "Third_Party", "KMD", "BTC", "LTC"]
-
-        for _coin in DPOW_COINS_ACTIVE:
-            _epoch = "Epoch_0"
-            SEASONS_INFO[_season]["coins"].append(_coin)
-
-            if "server" in DPOW_COINS_ACTIVE[_coin]["dpow"]:
-                _server = DPOW_COINS_ACTIVE[_coin]["dpow"]["server"]
-
-                if _coin in ["KMD", "LTC", "BTC"]:
-                    SEASONS_INFO[_season]["servers"].update({
-                        _coin: {
-                            "coins": [_coin],
-                            "addresses": {_coin: {}},
-                            "epochs": {
-                                _coin: {
-                                    "coins": [_coin],
-                                    "start_time": SEASONS_INFO[_season]["start_time"],
-                                    "end_time": SEASONS_INFO[_season]["end_time"],
-                                    "start_event": ["Season start"],
-                                    "end_event": ["Season end"]
-                                }
-                            }
-                        }
-                    })
-                if _server not in SEASONS_INFO[_season]["servers"]:
-                    SEASONS_INFO[_season]["servers"].update({
-                        _server: {
-                            "coins": [],
-                            "addresses": {
-                                "BTC": {},
-                                "LTC": {},
-                                "KMD": {}
-                            },
-                            "epochs": {}
-                        }
-                    })
-
-                if _epoch not in SEASONS_INFO[_season]["servers"][_server]["epochs"]:
-                    SEASONS_INFO[_season]["servers"][_server]["epochs"].update({
-                        _epoch: {"coins":[]}
-                    })
-
-                SEASONS_INFO[_season]["servers"][_server]["addresses"].update({_coin:{}})
-
-                if _server in ["Main", "Third_Party"] and _coin not in ["KMD", "LTC", "BTC"]:
-                    SEASONS_INFO[_season]["servers"][_server]["coins"].append(_coin)
-                    SEASONS_INFO[_season]["servers"][_server]["epochs"][_epoch]["coins"].append(_coin)
-
-                SEASONS_INFO[_season]["servers"][_server]["coins"].sort()
-                SEASONS_INFO[_season]["servers"][_server]["epochs"][_epoch]["coins"].sort()
-        SEASONS_INFO[_season]["coins"].sort()
-
-    else:
-        print(f"Populating {_season}...")
-        _servers = ["Main", "Third_Party", "KMD", "BTC", "LTC"]
-
-        # Get coins from scoring epochs data
-        for _server in _servers:
-            
-            server_epoch_coins = []
-            if _season in EPOCHS:
-                if _server in EPOCHS[_season]:
-                    for _epoch in EPOCHS[_season][_server]:
-                        server_epoch_coins = EPOCHS[_season][_server][_epoch]["coins"]
-
-            # Get coins from dPoW repo
-            current_dpow_coins = []
-            if _season == CURRENT_SEASON:
-                print(f"Using dPoW repo coins for current season {_season}")
-                if _season in CURRENT_DPOW_COINS:
-                    if _server in CURRENT_DPOW_COINS[_season]:
-                        current_dpow_coins = CURRENT_DPOW_COINS[_season][_server]
-
-            # Get coins from SCORING_EPOCHS_REPO_DATA
-            scoring_epoch_repo_coins = []
-            if _season in SCORING_EPOCHS_REPO_DATA:
-                if _server in SCORING_EPOCHS_REPO_DATA[_season]["Servers"]:
-                    scoring_epoch_repo_coins += list(SCORING_EPOCHS_REPO_DATA[_season]["Servers"][_server].keys())
-
-            _coins = list(set(
-                server_epoch_coins + current_dpow_coins
-                + scoring_epoch_repo_coins + ["KMD", "LTC", "BTC"]
-            ))
-            _coins.sort()
-
-            for _coin in _coins:
-                if _season in DPOW_EXCLUDED_COINS:
-                    if _coin not in DPOW_EXCLUDED_COINS[_season]:
-                        if _coin == _server:
-                            SEASONS_INFO[_season]["servers"].update({
-                                _coin: {
-                                    "coins": [_coin],
-                                    "addresses": {_coin: {}},
-                                    "epochs": {
-                                        _coin: {
-                                            "coins": [_coin],
-                                            "start_time": SEASONS_INFO[_season]["start_time"],
-                                            "end_time": SEASONS_INFO[_season]["end_time"],
-                                            "start_event": ["Season start"],
-                                            "end_event": ["Season end"]
-                                        }
-                                    }
-                                }
-                            })
-
-                        elif _coin not in ["BTC", "KMD", "LTC"]:
-                            if _server not in SEASONS_INFO[_season]["servers"]:
-                                SEASONS_INFO[_season]["servers"].update({
-                                    _server: {
-                                        "coins": [],
-                                        "addresses": {
-                                            "BTC": {},
-                                            "LTC": {},
-                                            "KMD": {}
-                                        },
-                                        "epochs": {}
-                                    }
-                                })
-
-                            SEASONS_INFO[_season]["servers"][_server]["coins"].append(_coin)
-                            SEASONS_INFO[_season]["servers"][_server]["addresses"].update({_coin:{}})
-                        SEASONS_INFO[_season]["coins"].append(_coin)
-
-
-for _season in SEASONS_INFO:
-    SEASONS_INFO[_season]["coins"] = list(set(SEASONS_INFO[_season]["coins"]))
-    SEASONS_INFO[_season]["coins"].sort()
-    for _server in SEASONS_INFO[_season]["servers"]:
-        SEASONS_INFO[_season]["servers"][_server]["coins"] = list(set(SEASONS_INFO[_season]["servers"][_server]["coins"]))
-        SEASONS_INFO[_season]["servers"][_server]["coins"].sort()
-
-print("Collected season info data...")
 
 # Get Addresses
 NOTARY_BTC_ADDRESSES = {}
@@ -609,185 +639,50 @@ for _season in SEASONS_INFO:
         if _season not in NOTARY_LTC_ADDRESSES:
             NOTARY_LTC_ADDRESSES.update({_season: {}})
 
-        for _server in NOTARY_PUBKEYS[_season]:
-            for _notary in SEASONS_INFO[_season]["notaries"]:
-                pubkey = NOTARY_PUBKEYS[_season][_server][_notary]
-                address = get_addr_from_pubkey(_coin, pubkey)
+        if _season in NOTARY_PUBKEYS:
 
-                if _coin == "BTC":
-                    NOTARY_BTC_ADDRESSES[_season].update({address: _notary})
-                    ALL_SEASON_NOTARY_BTC_ADDRESSES.update({address: _notary})
+            for _server in SEASONS_INFO[_season]["servers"]:
+                _coins = SEASONS_INFO[_season]["servers"][_server]["coins"][:]
 
-                if _coin == "KMD":
-                    NOTARY_KMD_ADDRESSES[_season].update({address: _notary})
-                    ALL_SEASON_NOTARY_KMD_ADDRESSES.update({address: _notary})
-                
-                if _coin == "LTC":
-                    NOTARY_LTC_ADDRESSES[_season].update({address: _notary})
-                    ALL_SEASON_NOTARY_LTC_ADDRESSES.update({address: _notary})
+                if _server in ["Main", "Third_Party"]:
+                    _coins.append("KMD")
+                    _coins.append("LTC")
+                    _coins.append("BTC")
 
+                for _coin in _coins:
+                    for _notary in SEASONS_INFO[_season]["notaries"]:
 
-                if _server not in SEASONS_INFO[_season]["servers"]:
-                    SEASONS_INFO[_season]["servers"].update({
-                        _server: {
-                            "coins": [],
-                            "epochs": {},
-                            "addresses": {}
-                        }
-                    })
-
-                if _coin not in SEASONS_INFO[_season]["servers"][_server]["addresses"]:
-                    SEASONS_INFO[_season]["servers"][_server]["addresses"].update({
-                        _coin: {}
-                    })
-
-                SEASONS_INFO[_season]["servers"][_server]["addresses"][_coin].update({
-                    address: _notary
-                })
-
-                    
-                if _coin not in SEASONS_INFO[_season]["servers"]:
-                    SEASONS_INFO[_season]["servers"].update({
-                        _coin: {
-                            "coins": [],
-                            "epochs": {},
-                            "addresses": {}
-                        }
-                    })
-                    
-                if _coin not in SEASONS_INFO[_season]["servers"][_coin]["addresses"]:
-                    SEASONS_INFO[_season]["servers"][_coin]["addresses"].update({
-                        _coin: {}
-                    })
-
-                SEASONS_INFO[_season]["servers"][_coin]["addresses"][_coin].update({
-                    address: _notary
-                })
-
-    for _server in NOTARY_PUBKEYS[_season]:
-        for _notary in SEASONS_INFO[_season]["notaries"]:
-            pubkey = NOTARY_PUBKEYS[_season][_server][_notary]
-
-            if _server == "Main":
-                address = get_addr_from_pubkey("KMD", pubkey)
-                for _coin in SEASONS_INFO[_season]["servers"][_server]["coins"]:
-                    SEASONS_INFO[_season]["servers"][_server]["addresses"][_coin].update({
-                        address: _notary
-                    })
-
-            if _server == "Third_Party":
-                for _coin in SEASONS_INFO[_season]["servers"][_server]["coins"]:
-                    address = get_addr_from_pubkey(_coin, pubkey)
-                    SEASONS_INFO[_season]["servers"][_server]["addresses"][_coin].update({
-                        address: _notary
-                    })
-
-print("Collected addresses data...")
-
-# Populate season epochs info
-for _season in SCORING_EPOCHS_REPO_DATA:
-    for _server in SCORING_EPOCHS_REPO_DATA[_season]["Servers"]:
-
-        epoch_times = []
-        epoch_times.append(SCORING_EPOCHS_REPO_DATA[_season]["season_start"])
-        epoch_times.append(SCORING_EPOCHS_REPO_DATA[_season]["season_end"])
-
-        for _coin in SCORING_EPOCHS_REPO_DATA[_season]["Servers"][_server]:
-            if "start_time" in SCORING_EPOCHS_REPO_DATA[_season]["Servers"][_server][_coin]:
-                epoch_times.append(SCORING_EPOCHS_REPO_DATA[_season]["Servers"][_server][_coin]["start_time"])
-            if "end_time" in SCORING_EPOCHS_REPO_DATA[_season]["Servers"][_server][_coin]:
-                epoch_times.append(SCORING_EPOCHS_REPO_DATA[_season]["Servers"][_server][_coin]["end_time"])
-
-        epoch_times = list(set(epoch_times))
-        epoch_times.sort()
-
-        for i in range(len(epoch_times)-1):
-            _epoch = f"Epoch_{i}"
-            epoch_start = epoch_times[i]
-            epoch_end = epoch_times[i+1]
-            SEASONS_INFO[_season]["servers"][_server]["epochs"].update({
-                _epoch: {
-                    "start_time": epoch_start,
-                    "end_time": epoch_end - 1,
-                    "start_event": [],
-                    "end_event": [],
-                    "coins": []
-                }
-            })
-
-            if SCORING_EPOCHS_REPO_DATA[_season]["season_start"] == epoch_start:
-                SEASONS_INFO[_season]["servers"][_server]["epochs"][_epoch]["start_event"].append("Season start")
-
-            if SCORING_EPOCHS_REPO_DATA[_season]["season_end"] == epoch_end:
-                SEASONS_INFO[_season]["servers"][_server]["epochs"][_epoch]["end_event"].append("Season end")
-
-            for _coin in SEASONS_INFO[_season]["servers"][_server]["coins"]:
-                if _season in DPOW_EXCLUDED_COINS:
-                    if _coin not in DPOW_EXCLUDED_COINS[_season]:
-                        if _coin in SCORING_EPOCHS_REPO_DATA[_season]["Servers"][_server]:
-
-                            in_epoch = False
-                            partial_coin_info = SCORING_EPOCHS_REPO_DATA[_season]["Servers"][_server][_coin]
-
-                            if "start_time" in partial_coin_info and "end_time" in partial_coin_info:
-                                coin_start = partial_coin_info["start_time"]
-                                coin_end = partial_coin_info["end_time"]
-
-                                if epoch_start == coin_start:
-                                    SEASONS_INFO[_season]["servers"][_server]["epochs"][_epoch]["start_event"].append(f"{_coin} start")
-
-                                if epoch_start == coin_end:
-                                    SEASONS_INFO[_season]["servers"][_server]["epochs"][_epoch]["start_event"].append(f"{_coin} end")
-
-                                if epoch_end == coin_start:
-                                    SEASONS_INFO[_season]["servers"][_server]["epochs"][_epoch]["end_event"].append(f"{_coin} start")
-
-                                if epoch_end == coin_end:
-                                    SEASONS_INFO[_season]["servers"][_server]["epochs"][_epoch]["end_event"].append(f"{_coin} end")
-
-                                if epoch_start >= coin_start and epoch_end <= coin_end:
-                                    in_epoch = True
-
-                            elif "start_time" in partial_coin_info:
-                                coin_start = partial_coin_info["start_time"]
-
-                                if epoch_start == coin_start:
-                                    SEASONS_INFO[_season]["servers"][_server]["epochs"][_epoch]["start_event"].append(f"{_coin} start")
-
-                                if epoch_end == coin_start:
-                                    SEASONS_INFO[_season]["servers"][_server]["epochs"][_epoch]["end_event"].append(f"{_coin} start")
-
-                                if epoch_start >= coin_start:
-                                    in_epoch = True
-
-                            elif "end_time" in partial_coin_info:
-                                coin_end = partial_coin_info["end_time"]
-
-                                if epoch_start == coin_end:
-                                    SEASONS_INFO[_season]["servers"][_server]["epochs"][_epoch]["start_event"].append(f"{_coin} end")
-
-                                if epoch_end == coin_end:
-                                    SEASONS_INFO[_season]["servers"][_server]["epochs"][_epoch]["end_event"].append(f"{_coin} end")
-
-                                if epoch_end <= coin_end:
-                                    in_epoch = True
-
-                            if in_epoch:
-                                SEASONS_INFO[_season]["servers"][_server]["epochs"][_epoch]["coins"].append(_coin)
-
+                        if _server in ["BTC", "LTC", "KMD"]:
+                            pubkey = NOTARY_PUBKEYS[_season]["Main"][_notary]
                         else:
-                            SEASONS_INFO[_season]["servers"][_server]["epochs"][_epoch]["coins"].append(_coin)
+                            pubkey = NOTARY_PUBKEYS[_season][_server][_notary]
 
-            num_coins = len(SEASONS_INFO[_season]["servers"][_server]["epochs"][_epoch]["coins"])
-            score_per_ntx = calc_epoch_score(_server, num_coins)
+                        if _server == "Main":
+                            address = get_addr_from_pubkey("KMD", pubkey)
+                        else:
+                            address = get_addr_from_pubkey(_coin, pubkey)
 
-            SEASONS_INFO[_season]["servers"][_server]["epochs"][_epoch]["coins"].sort()
-            SEASONS_INFO[_season]["servers"][_server]["epochs"][_epoch].update({
-                "score_per_ntx": score_per_ntx,
-                "num_coins": num_coins
-            })
+                        if _coin == "BTC":
+                            NOTARY_BTC_ADDRESSES[_season].update({address: _notary})
+                            ALL_SEASON_NOTARY_BTC_ADDRESSES.update({address: _notary})
 
-print("Collected epochs data...")
+                        if _coin == "KMD":
+                            NOTARY_KMD_ADDRESSES[_season].update({address: _notary})
+                            ALL_SEASON_NOTARY_KMD_ADDRESSES.update({address: _notary})
+                        
+                        if _coin == "LTC":
+                            NOTARY_LTC_ADDRESSES[_season].update({address: _notary})
+                            ALL_SEASON_NOTARY_LTC_ADDRESSES.update({address: _notary})
+
+                        if _coin not in SEASONS_INFO[_season]["servers"][_server]["addresses"]:
+                            SEASONS_INFO[_season]["servers"][_server]["addresses"].update({
+                                _coin: {}
+                            })
+
+                        SEASONS_INFO[_season]["servers"][_server]["addresses"][_coin].update({
+                            address: _notary
+                        })
+
 
 # Set season and if postseason
 POSTSEASON = False
@@ -801,10 +696,11 @@ for _season in SEASONS_INFO:
             elif SEASONS_INFO[_season]["end_time"] > NOW:
                     SEASON = _season
 
-#print(f"SEASONS_INFO: {SEASONS_INFO['Season_6']['servers']['Third_Party']}")
-
-SEASONS_INFO['Season_6']['servers']['Third_Party']['epochs']['Epoch_0']['coins'] = ['AYA', 'EMC2', 'MCL', 'SFUSD', 'TOKEL']
-SEASONS_INFO['Season_6']['servers']['Third_Party']['epochs']['Epoch_0']['num_coins'] = 5
-SEASONS_INFO['Season_6']['servers']['Third_Party']['epochs']['Epoch_0']['score_per_ntx'] = calc_epoch_score('Third_Party', 5)
 
 print(f"{int(time.time()) - NOW} sec to complete dpow const")
+
+NEXT_SEASON_COINS = []
+
+
+if __name__ == '__main__':
+    pass

@@ -1,7 +1,6 @@
 from django.db import models
 from django.db.models import JSONField
 from django.contrib.postgres.fields import ArrayField
-from kmd_ntx_api.lib_const import *
 
 # TODO: When updating on conflict, make sure all potentially variable fields are included.
 
@@ -59,6 +58,8 @@ class coins(models.Model):
     coins_info = JSONField(default=dict)
     electrums = JSONField(default=dict)
     electrums_ssl = JSONField(default=dict)
+    electrums_wss = JSONField(default=dict)
+    lightwallets = JSONField(default=dict)
     explorers = JSONField(default=dict)
     dpow = JSONField(default=dict)
     dpow_tenure = JSONField(default=dict)
@@ -180,6 +181,37 @@ class mined(models.Model):
             models.UniqueConstraint(
                 fields=['block_height'], 
                 name='unique_block'
+            )
+        ]
+
+
+class mined_archive(models.Model):
+    block_height = models.PositiveIntegerField(default=0)
+    block_time = models.PositiveIntegerField(default=0)
+    block_datetime = models.DateTimeField()
+    value = models.DecimalField(max_digits=18, decimal_places=8)
+    address = models.CharField(max_length=34)
+    name = models.CharField(max_length=34)
+    txid = models.CharField(max_length=64)
+    diff = models.FloatField(default=0)
+    season = models.CharField(max_length=34)
+    usd_price = models.DecimalField(max_digits=18, decimal_places=8, default=0)
+    btc_price = models.DecimalField(max_digits=18, decimal_places=8, default=0)
+    category = models.CharField(max_length=34 ,default="")
+
+    class Meta:
+        db_table = 'mined_archive'
+        indexes = [
+            models.Index(fields=['name']),
+            models.Index(fields=['category']),
+            models.Index(fields=['season']),
+            models.Index(fields=['-block_height']),
+            models.Index(fields=['-block_time'])
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['block_height'], 
+                name='unique_block_archive'
             )
         ]
 
@@ -359,6 +391,47 @@ class notarised(models.Model):
         ]
 
 
+class notarised_archive(models.Model):
+    txid = models.CharField(max_length=64)
+    coin = models.CharField(max_length=32)
+    block_hash = models.CharField(max_length=64)
+    block_time = models.PositiveIntegerField(default=0)
+    block_datetime = models.DateTimeField()
+    block_height = models.PositiveIntegerField(default=0)
+    notaries = ArrayField(models.CharField(max_length=34),size=13)
+    notary_addresses = ArrayField(models.CharField(max_length=34),size=13, default=list)
+    ac_ntx_blockhash = models.CharField(max_length=64)
+    ac_ntx_height = models.PositiveIntegerField(default=0)
+    opret = models.CharField(max_length=2048)
+    season = models.CharField(max_length=32)
+    server = models.CharField(max_length=32, default='')
+    epoch = models.CharField(max_length=32, default='')
+    scored = models.BooleanField(default=True)
+    score_value = models.DecimalField(max_digits=18, decimal_places=8, default=0)
+
+    class Meta:
+        db_table = 'notarised_archive'
+        indexes = [
+            models.Index(fields=['txid']),
+            models.Index(fields=['-block_time']),
+            models.Index(fields=['-block_height']),
+            models.Index(fields=['season']),
+            models.Index(fields=['server']),
+            models.Index(fields=['epoch']),
+            models.Index(fields=['coin']),
+            models.Index(fields=['coin', '-block_height']),
+            models.Index(fields=['season', 'server']),
+            models.Index(fields=['season', 'server', 'coin']),
+            models.Index(fields=['season', 'server', 'epoch']),
+            models.Index(fields=['season', 'server', 'epoch', 'coin']),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=['txid'],
+                                 name='unique_txid_archive')
+        ]
+
+
+
 class notarised_coin_daily(models.Model):
     notarised_date = models.DateField()
     season = models.CharField(max_length=24)
@@ -520,6 +593,7 @@ class notary_candidates(models.Model):
                                  name='unique_name_year_candidate')
         ]
 
+
 # todo: add address lookup tool
 class rewards_tx(models.Model):
     txid = models.CharField(max_length=64)
@@ -545,6 +619,22 @@ class rewards_tx(models.Model):
         constraints = [
             models.UniqueConstraint(fields=['txid', 'address'],
                                  name='unique_rewards_nn_txid')
+        ]
+
+class kmd_supply(models.Model):
+    block_height = models.PositiveIntegerField(default=0)
+    block_time = models.PositiveIntegerField(default=0)
+    total_supply = models.PositiveIntegerField(default=0)
+    delta = models.IntegerField(default=0)
+
+    class Meta:
+        db_table = 'kmd_supply'
+        indexes = [
+            models.Index(fields=['block_height']),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=['block_height'],
+                                 name='unique_blockheight_supply')
         ]
 
 
@@ -688,21 +778,3 @@ class swaps_failed(models.Model):
                 name='unique_swaps_failed'
             )
         ]
-
-
-# to make migrations, use "docker-compose run web python3 manage.py makemigrations"
-# to apply migrations, use "docker-compose run web python3 manage.py migrate"
-# to update static files, use "docker-compose run web python3 manage.py collectstatic"
-# Editing pg.conf
-# docker exec -it <pgsql_container_name> bash
-# apt update & apt install nano
-# nano  ./var/lib/postgresql/data/postgresql.conf
-# change max_connections to 1000
-# change max_wal_size to 2gb
-# log_rotation_size to 100mb
-
-# Find where colectstatic is looking
-# docker-compose run web python3 manage.py findstatic --verbosity 2 static
-
-# PGSQL access config
-# sudo nano /home/smk762/kmd_ntx_stats_docker/postgres-data/pg_hba.conf

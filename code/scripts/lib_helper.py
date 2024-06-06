@@ -17,6 +17,10 @@ def handle_translate_coins(coin):
         return TRANSLATE_COINS[coin]
     return coin
 
+def handle_translate_coins_reverse(coin):
+    if coin in REVERSE_TRANSLATE_COINS:
+        return REVERSE_TRANSLATE_COINS[coin]
+    return coin
 
 def get_dpow_coin_src(src):
     try:
@@ -85,6 +89,19 @@ def is_notary_ltc_address(addr):
     if addr in ALL_SEASON_NOTARY_LTC_ADDRESSES:
         return True
     return False
+
+
+def get_active_seasons(timestamp=None):
+    active_seasons = []
+    if not timestamp: timestamp = int(time.time())
+    for season in SEASONS_INFO:
+        if "end_time" in SEASONS_INFO[season]:
+            if timestamp <= SEASONS_INFO[season]["end_time"] and timestamp >= SEASONS_INFO[season]["start_time"]:
+                active_seasons.append(season)
+        if "post_season_end_time" in SEASONS_INFO[season]:
+            if timestamp <= SEASONS_INFO[season]["post_season_end_time"] and timestamp >= SEASONS_INFO[season]["start_time"]:
+                active_seasons.append(season)
+    return active_seasons
 
 
 def is_postseason(timestamp=None, block=None):

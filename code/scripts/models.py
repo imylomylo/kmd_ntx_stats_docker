@@ -89,13 +89,15 @@ class balance_row():
    
 class coins_row():
     def __init__(self, coin='', coins_info='',
-     electrums='', electrums_ssl='', explorers='',
+     electrums='', electrums_ssl='', electrums_wss='', explorers='', lightwallets='',
      dpow='', dpow_tenure=dict, dpow_active='', mm2_compatible=''):
         self.coin = coin
         self.coins_info = coins_info
         self.electrums = electrums
         self.electrums_ssl = electrums_ssl
+        self.electrums_wss = electrums_wss
         self.explorers = explorers
+        self.lightwallets = lightwallets
         self.dpow = dpow
         self.dpow_tenure = dpow_tenure
         self.dpow_active = dpow_active
@@ -105,12 +107,10 @@ class coins_row():
         return True
 
     def update(self):
-        self.coin = handle_translate_coins(self.coin)
         row_data = (self.coin, self.coins_info, self.electrums,
-            self.electrums_ssl, self.explorers, self.dpow,
+            self.electrums_ssl, self.electrums_wss, self.explorers, self.lightwallets, self.dpow,
             self.dpow_tenure, self.dpow_active, self.mm2_compatible)
         if self.validated():
-            logger.info(f"Updating [coins] {self.coin} ")
             update_coins_row(row_data)
         else:
             logger.warning(f"[coins] Row data invalid!")
@@ -120,6 +120,34 @@ class coins_row():
         CURSOR.execute(f"DELETE FROM coins WHERE coin = '{self.coin}';")
         CONN.commit()
         logger.info(f"Deleted {self.coin} from [coins] ")
+  
+
+class kmd_supply_row():
+    def __init__(self, block_height='', block_time='', total_supply='', delta=''):
+        self.block_time = block_time
+        self.block_height = block_height
+        self.total_supply = total_supply
+        self.delta = delta
+
+    def validated(self):
+        return True
+
+    def update(self):
+        row_data = (self.block_height, self.block_time, self.total_supply, self.delta)
+        if self.validated():
+            logger.info(f"Updating [kmd_supply_row] {self.total_supply} at height {self.block_height} with delta {self.delta}")
+            update_kmd_supply_row(row_data)
+        else:
+            logger.warning(f"[kmd_supply_row] Row data invalid!")
+            logger.warning(f"{row_data}")
+
+    def delete(self, block=None):
+        if block:
+            CURSOR.execute(f"DELETE FROM kmd_supply WHERE block_height = {self.block_height};")
+        else:
+            CURSOR.execute(f"DELETE FROM kmd_supply;")
+        CONN.commit()
+        logger.info(f"Deleted {self.block_height} from [kmd_supply] ")
   
 
 # TODO: DEPRECATE in S5, no more BTC
@@ -399,9 +427,6 @@ class ltc_tx_row():
             logger.warning(f"{row_data}")
 
 
-    def delete(self):
-        delete_nn_ltc_tx_transaction(self.txid)
-
 
 ######### NTX Related ##########
 class notarised_row():
@@ -512,7 +537,7 @@ class notarised_coin_daily_row():
     def update(self):
         if season == "Unofficial":
             logger.info(f"[notarised_coin_daily_row] {coin} season unofficial?")
-        self.server = lib_validate.get_coin_server(self.season, self.coin)
+        self.server = lib_validate.get_dpow_coin_server(self.season, self.coin)
 
         self.server, self.coin = lib_validate.handle_dual_server_coins(
             self.server, self.coin
@@ -707,7 +732,7 @@ class coin_last_ntx_row():
 
     def update(self):
 
-        self.server = lib_validate.get_coin_server(self.season, self.coin)
+        self.server = lib_validate.get_dpow_coin_server(self.season, self.coin)
         self.server, self.coin = lib_validate.handle_dual_server_coins(self.server, self.coin)
         row_data = (self.season, self.server, self.coin,\
                      self.notaries, self.opret, self.kmd_ntx_blockhash,\
@@ -760,7 +785,7 @@ class notary_last_ntx_row():
         return True
 
     def update(self):
-        self.server = lib_validate.get_coin_server(self.season, self.coin)
+        self.server = lib_validate.get_dpow_coin_server(self.season, self.coin)
         self.server, self.coin = lib_validate.handle_dual_server_coins(self.server, self.coin)
         row_data = (self.season, self.server, self.coin, self.notary,\
                      self.notaries, self.opret, self.kmd_ntx_blockhash,\
@@ -838,7 +863,7 @@ class ntx_tenure_row():
             logger.warning(f" [notarised_tenure] Invalid server {server}")
             return False
 
-        if self.season not in ['Season_5', 'Season_5_Testnet', 'Season_4', 'Season_6']:
+        if self.season not in ['Season_5', 'Season_5_Testnet', 'Season_4', 'Season_6', 'Season_7']:
             logger.warning(f"[notarised_tenure] Invalid season {season}")
             
             return False
@@ -1318,11 +1343,14 @@ class rewards_tx_row():
 
 
     def validated(self):
-        for i in [self.txid, self.block_hash, self.block_height,
+        row_list = [self.txid, self.block_hash, self.block_height,
                   self.block_time, self.block_datetime,
                   self.sum_of_inputs, self.sum_of_outputs, self.address,
-                  self.rewards_value, self.btc_price, self.usd_price]:
+                  self.rewards_value, self.btc_price, self.usd_price]
+        for i in row_list:
             if i == '':
+                logger.warning(f"Row list index {row_list.index(i)} is empty!")
+
                 return False
         return True
 

@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 import os
-import datetime
-import logging
+from datetime import datetime, timezone
 import requests
 from dotenv import load_dotenv
-from logging import Handler, Formatter
 
 # DEPS:
 # sudo apt-get install libgnutls28-dev python3 python3-pip python3-setuptools python3-six
@@ -22,7 +20,7 @@ TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
 def send_telegram(msg):
-    t = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+    t = datetime.now(timezone.utc).timestamp().strftime('%Y-%m-%d %H:%M:%S')
     payload = {
         'chat_id': TELEGRAM_CHAT_ID,
         'text': f"{t}: {msg}"

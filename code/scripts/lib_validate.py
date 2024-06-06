@@ -4,7 +4,7 @@ import lib_api
 import lib_electrum
 import lib_query
 from lib_helper import is_postseason, handle_translate_coins
-
+from lib_urls import get_notarised_tenure_table_url
 
 def check_excluded_coins(season, server, coin):
     if season in DPOW_EXCLUDED_COINS: 
@@ -131,9 +131,8 @@ def get_coin_epoch_score_at(season, server, coin, timestamp, testnet=False):
 
 
 def calc_epoch_score(server, num_coins):
+    logger.info(f"[calc_epoch_score] {server} {num_coins}")
     if num_coins == 0:
-        print("zero num coins")
-        print(server, num_coins)
         return 0
     if server == "Main":
         return round(0.8698/num_coins, 8)
@@ -272,7 +271,7 @@ def get_server_active_scoring_dpow_coins_at_time(season, server, timestamp):
     return server_active_scoring_dpow_coins, len(server_active_scoring_dpow_coins)
 
 
-def get_coin_server(season, coin):
+def get_dpow_coin_server(season, coin):
     if season.find("Testnet") != -1:
         return "Main"
 

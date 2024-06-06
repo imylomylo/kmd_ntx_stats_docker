@@ -1,6 +1,5 @@
 from django.contrib.auth.models import User, Group
 from kmd_ntx_api.models import *
-from kmd_ntx_api.lib_const import *
 from rest_framework import serializers
 
 
@@ -39,8 +38,8 @@ class coinNtxSeasonSerializer(serializers.HyperlinkedModelSerializer):
 class coinsSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = coins
-        fields = ['coin', 'coins_info', 'electrums', 'electrums_ssl',
-                  'explorers', 'dpow', 'dpow_tenure', 'dpow_active',
+        fields = ['coin', 'coins_info', 'electrums', 'electrums_ssl', 'electrums_wss',
+                  'explorers', 'lightwallets', 'dpow', 'dpow_tenure', 'dpow_active',
                   'mm2_compatible']
 
 
@@ -220,6 +219,12 @@ class serverNtxSeasonSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = server_ntx_season
         fields = ['season', 'server', 'server_data', 'timestamp']
+
+
+class kmdSupplySerializer(serializers.HyperlinkedModelSerializer):
+    class Meta:
+        model = kmd_supply
+        fields = ['block_time', 'block_height', 'total_supply']
 
 
 class swapsSerializer(serializers.HyperlinkedModelSerializer):

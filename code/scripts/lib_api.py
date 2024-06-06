@@ -29,12 +29,11 @@ def api_sleep_or_exit(resp, exit=None):
 def get_kmd_price(date):
     url = get_kmd_price_url(date)
     r = requests.get(url)
-    print(url)
     try:
         return r.json()["market_data"]["current_price"]
     except:
-        print (r.text)
-        return False
+        print (f"get_kmd_price: {r.text}")
+
   
 
 def get_ac_block_info():
